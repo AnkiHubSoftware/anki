@@ -261,6 +261,25 @@ You may wish to create a separate profile with File>Switch Profile for use
 during development. You can pass the arguments "-p [profile name]" when starting
 Anki to load a specific profile.
 
+```bash
+./run -p devprofile
+```
+
+For complete isolation (including add-ons and all profiles), you can use a separate
+base folder with the `-b` flag:
+
+```bash
+./run -b ~/anki-dev
+```
+
+By default, Anki stores profiles and add-ons in:
+- macOS: `~/Library/Application Support/Anki2`
+- Linux: `~/.local/share/Anki2`
+- Windows: `%APPDATA%/Anki2`
+
+Using `-b` creates a completely separate environment, preventing any interference
+between your development work and regular Anki usage.
+
 If you're using PyCharm:
 
 - right click on the "run" file in the root of the PyCharm Anki folder
