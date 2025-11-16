@@ -20,3 +20,7 @@ ts/.svelte-kit
 .yarn
 .claude/settings.local.json
 .claude/user.md
+htmlcov
+htmlcov-qt
+.coverage
+.pytest_cache

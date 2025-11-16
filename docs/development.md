@@ -77,6 +77,66 @@ You can also run specific checks. For example, if you see during the checks
 that `check:svelte:editor` is failing, you can use `./ninja check:svelte:editor`
 to re-run that check, or `./ninja check:svelte` to re-run all Svelte checks.
 
+### Running Python tests
+
+The Python test suite uses pytest and is integrated into the build system. Tests are automatically
+run as part of `./ninja check`, but you can run them individually:
+
+```bash
+# Run Python library (pylib) tests
+./ninja check:pytest:pylib
+
+# Run Qt GUI (aqt) tests
+./ninja check:pytest:aqt
+```
+
+The build system automatically:
+- Creates a Python environment in `out/pyenv` with all dependencies
+- Compiles Rust code and generates Python bindings
+- Sets `PYTHONPATH` to include generated code in `out/`
+- Sets `ANKI_TEST_MODE=1` environment variable
+
+### Running Python tests with coverage
+
+To measure test coverage, first ensure pytest-cov is installed (it should be in dev dependencies).
+Then run:
+
+```bash
+# For pylib tests with coverage
+PYTHONPATH=out/pylib ANKI_TEST_MODE=1 out/pyenv/bin/pytest \
+  --cov=pylib/anki \
+  --cov-report=term \
+  --cov-report=html \
+  pylib/tests
+
+# For qt tests with coverage
+PYTHONPATH=pylib:out/pylib:out/qt ANKI_TEST_MODE=1 out/pyenv/bin/pytest \
+  --cov=qt/aqt \
+  --cov-report=term \
+  --cov-report=html:htmlcov-qt \
+  qt/tests
+```
+
+Coverage reports:
+- Terminal output shows a summary of coverage percentages
+- HTML reports are generated in `htmlcov/` (pylib) or `htmlcov-qt/` (qt)
+- Open `htmlcov/index.html` in a browser for detailed line-by-line coverage visualization
+
+You can also run specific test files or functions:
+
+```bash
+# Run a specific test file
+PYTHONPATH=out/pylib ANKI_TEST_MODE=1 out/pyenv/bin/pytest pylib/tests/test_cards.py
+
+# Run a specific test with pytest -k
+PYTHONPATH=out/pylib ANKI_TEST_MODE=1 out/pyenv/bin/pytest pylib/tests -k test_cards
+```
+
+### Test locations
+
+- `pylib/tests/`: Tests for the Python library (anki package) - 89 tests
+- `qt/tests/`: Tests for the Qt GUI (aqt package) - 12 tests
+
 ## Fixing formatting
 
 When formatting issues are reported, they can be fixed with
