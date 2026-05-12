@@ -25,6 +25,8 @@ dev = [
   "types-markdown",
   "types-waitress",
   "types-pywin32",
+  "coverage>=7.13.5",
+  "playwright",
 ]
 docs = [
   "sphinx",
