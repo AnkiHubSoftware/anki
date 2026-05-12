@@ -1,6 +1,8 @@
 set windows-shell := ["cmd.exe", "/c"]
 set dotenv-load
 
+mod release
+
 # Show available commands
 default:
     @just --list
@@ -128,6 +130,10 @@ docs-serve:
 # Build Rust API docs
 docs-rust:
     cargo doc --open
+
+# Dispatch CI workflow on a given branch or tag
+ci branch:
+    gh workflow run ci.yml --ref {{ branch }}
 
 # Start Anki in dev mode (env vars loaded from .env)
 run:
