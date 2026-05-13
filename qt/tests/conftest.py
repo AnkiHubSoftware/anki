@@ -100,14 +100,18 @@ def _wait_for_main_window(timeout: float = 45.0) -> None:
             if main is not None:
                 ws = websocket.create_connection(main["webSocketDebuggerUrl"])
                 try:
-                    ws.send(json.dumps({
-                        "id": 1,
-                        "method": "Runtime.evaluate",
-                        "params": {
-                            "expression": "typeof window.bridgeCommand",
-                            "returnByValue": True,
-                        },
-                    }))
+                    ws.send(
+                        json.dumps(
+                            {
+                                "id": 1,
+                                "method": "Runtime.evaluate",
+                                "params": {
+                                    "expression": "typeof window.bridgeCommand",
+                                    "returnByValue": True,
+                                },
+                            }
+                        )
+                    )
                     while True:
                         msg = json.loads(ws.recv())
                         if msg.get("id") == 1:
@@ -126,7 +130,9 @@ def _wait_for_main_window(timeout: float = 45.0) -> None:
 
 
 @pytest.fixture(scope="session")
-def anki_process(tmp_path_factory: pytest.TempPathFactory) -> Generator[subprocess.Popen, None, None]:
+def anki_process(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[subprocess.Popen, None, None]:
     base = tmp_path_factory.mktemp("anki_base")
     _seed_prefs(base)
 

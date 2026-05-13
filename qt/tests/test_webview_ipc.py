@@ -17,17 +17,23 @@ import websocket
 _msg_id = count(1)
 
 
-def _evaluate(ws: websocket.WebSocket, expression: str, *, await_promise: bool = False) -> Any:
+def _evaluate(
+    ws: websocket.WebSocket, expression: str, *, await_promise: bool = False
+) -> Any:
     mid = next(_msg_id)
-    ws.send(json.dumps({
-        "id": mid,
-        "method": "Runtime.evaluate",
-        "params": {
-            "expression": expression,
-            "awaitPromise": await_promise,
-            "returnByValue": True,
-        },
-    }))
+    ws.send(
+        json.dumps(
+            {
+                "id": mid,
+                "method": "Runtime.evaluate",
+                "params": {
+                    "expression": expression,
+                    "awaitPromise": await_promise,
+                    "returnByValue": True,
+                },
+            }
+        )
+    )
     while True:
         msg = json.loads(ws.recv())
         if msg.get("id") == mid:

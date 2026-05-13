@@ -2,6 +2,7 @@
 """POC: call bridgeCommand in an Anki Qt webview via the CDP WebSocket."""
 
 import json
+
 import websocket
 
 CDP_WS = "ws://localhost:8080/devtools/page/661A24F76B9743ECACF3DAA138D4DAB0"
@@ -9,13 +10,23 @@ CDP_WS = "ws://localhost:8080/devtools/page/661A24F76B9743ECACF3DAA138D4DAB0"
 _next_id = iter(range(1, 9999))
 
 
-def evaluate(ws: websocket.WebSocket, expression: str, await_promise: bool = False) -> dict:
+def evaluate(
+    ws: websocket.WebSocket, expression: str, await_promise: bool = False
+) -> dict:
     msg_id = next(_next_id)
-    ws.send(json.dumps({
-        "id": msg_id,
-        "method": "Runtime.evaluate",
-        "params": {"expression": expression, "awaitPromise": await_promise, "returnByValue": True},
-    }))
+    ws.send(
+        json.dumps(
+            {
+                "id": msg_id,
+                "method": "Runtime.evaluate",
+                "params": {
+                    "expression": expression,
+                    "awaitPromise": await_promise,
+                    "returnByValue": True,
+                },
+            }
+        )
+    )
     while True:
         msg = json.loads(ws.recv())
         if msg.get("id") == msg_id:
