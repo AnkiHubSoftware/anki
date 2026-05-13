@@ -143,5 +143,10 @@ run:
 test-integration *args:
     uv run pytest qt/tests/test_webview_ipc.py -v {{ args }}
 
+# Run TS Playwright e2e tests against a temporary Anki instance
+# (Playwright's webServer config invokes qt/tests/launch_anki_for_e2e.py)
+test-e2e *args:
+    yarn playwright test {{ args }}
+
 # Helper to get the right ninja command for the platform
 ninja := if os() == "windows" { "tools\\ninja" } else { "./ninja" }
