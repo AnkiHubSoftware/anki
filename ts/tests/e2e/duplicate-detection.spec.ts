@@ -12,38 +12,30 @@
 // probe value, then type that same probe value back to trigger duplicate detection.
 // This makes the test resilient to collection state from prior test runs.
 
-import {
-    NoteFieldsCheckResponse,
-    NoteFieldsCheckResponse_State,
-} from "@generated/anki/notes_pb";
+import { NoteFieldsCheckResponse, NoteFieldsCheckResponse_State } from "@generated/anki/notes_pb";
 
 import { expect, test } from "./fixtures";
+import { captureProtoResponses, editableField, editorField, rpcUrl } from "./helpers";
 
 test.describe("Duplicate Detection", () => {
-    test("typing a duplicate first field fires noteFieldsCheck with DUPLICATE state and surfaces UI", async ({
-        editor,
-    }) => {
+    test("typing a duplicate first field fires noteFieldsCheck with DUPLICATE state and surfaces UI", async ({ editor }) => {
         // Step 1: Generate a unique probe string to avoid collisions with other test runs.
         const probe = "dupe-probe-" + Date.now().toString();
 
         // The first field's editable lives inside a shadow DOM: .rich-text-editable > shadow > anki-editable.
         // Chained locator() calls pierce the shadow DOM automatically.
-        const firstFieldEditable = editor
-            .locator(".editor-field")
-            .first()
-            .locator(".rich-text-editable")
-            .locator("anki-editable");
+        const firstFieldEditable = editableField(editor, 0);
 
         // Step 2: Type the probe string into the first field.
         await firstFieldEditable.click();
         await firstFieldEditable.type(probe);
 
         // Wait for the 600ms debounce to settle by waiting for the duplicate-check RPC.
-        await editor.waitForRequest("**/_anki/noteFieldsCheck", { timeout: 5_000 });
+        await editor.waitForRequest(rpcUrl("noteFieldsCheck"), { timeout: 5_000 });
 
         // Step 3: Click the Add button to persist the note. Use exact match to avoid
         // matching "Add tag" in the tag editor.
-        const addNoteResp = editor.waitForResponse("**/_anki/addNote", {
+        const addNoteResp = editor.waitForResponse(rpcUrl("addNote"), {
             timeout: 10_000,
         });
         await editor.getByRole("button", { name: "Add", exact: true }).click();
@@ -54,7 +46,7 @@ test.describe("Duplicate Detection", () => {
         ).toBeLessThan(400);
 
         // Wait for the post-add newNote RPC — this is the form-reset signal.
-        await editor.waitForRequest("**/_anki/newNote", { timeout: 10_000 });
+        await editor.waitForRequest(rpcUrl("newNote"), { timeout: 10_000 });
 
         // Wait for the first field to be cleared (form reset).
         await expect(firstFieldEditable).toBeEmpty({ timeout: 5_000 });
@@ -66,20 +58,15 @@ test.describe("Duplicate Detection", () => {
         // forwards the request via route.fetch().)
         const observedStates: number[] = [];
         let sawDuplicate = false;
-        await editor.route("**/_anki/noteFieldsCheck", async (route) => {
-            const response = await route.fetch();
-            const body = await response.body();
-            if (response.status() < 400 && body.length > 0) {
-                const decoded = NoteFieldsCheckResponse.fromBinary(
-                    new Uint8Array(body),
-                );
+        await captureProtoResponses(
+            editor,
+            "noteFieldsCheck",
+            NoteFieldsCheckResponse,
+            (decoded) => {
                 observedStates.push(decoded.state);
-                if (decoded.state === NoteFieldsCheckResponse_State.DUPLICATE) {
-                    sawDuplicate = true;
-                }
-            }
-            await route.fulfill({ response });
-        });
+                sawDuplicate ||= decoded.state === NoteFieldsCheckResponse_State.DUPLICATE;
+            },
+        );
 
         // Type the SAME probe string — this should trigger a DUPLICATE response.
         await firstFieldEditable.click();
@@ -88,8 +75,7 @@ test.describe("Duplicate Detection", () => {
         // Wait until at least one observed response had state=DUPLICATE.
         await expect.poll(() => sawDuplicate, {
             timeout: 10_000,
-            message: () =>
-                `expected at least one noteFieldsCheck response with state=DUPLICATE, `
+            message: `expected at least one noteFieldsCheck response with state=DUPLICATE, `
                 + `observed states: ${JSON.stringify(observedStates)}`,
         }).toBe(true);
 
@@ -97,7 +83,7 @@ test.describe("Duplicate Detection", () => {
         // EditorField.svelte applies class:dupe to the .editor-field div when
         // the dupe prop is true. NoteEditor.svelte sets cols[0] = "dupe" when
         // the result is DUPLICATE and calls setBackgrounds().
-        const firstEditorField = editor.locator(".editor-field").first();
+        const firstEditorField = editorField(editor, 0);
         await expect(firstEditorField).toHaveClass(/dupe/, { timeout: 3_000 });
 
         // Step 7: Assert the "Show Duplicates" link rendered by DuplicateLink.svelte
@@ -114,7 +100,7 @@ test.describe("Duplicate Detection", () => {
         await editor.keyboard.press("Delete");
 
         // Wait for the debounced noteFieldsCheck to fire again after clearing.
-        await editor.waitForRequest("**/_anki/noteFieldsCheck", { timeout: 5_000 });
+        await editor.waitForRequest(rpcUrl("noteFieldsCheck"), { timeout: 5_000 });
 
         // Step 9: Assert the duplicate class is removed and the Show Duplicates link is gone.
         // After clearing, the field state returns to EMPTY/NORMAL — no dupe class.

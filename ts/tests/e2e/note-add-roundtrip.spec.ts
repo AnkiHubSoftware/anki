@@ -10,6 +10,7 @@
 import { AddNoteRequest } from "@generated/anki/notes_pb";
 
 import { expect, test } from "./fixtures";
+import { bridgeCalls, decodeRequestBody, editableField, rpcUrl } from "./helpers";
 
 test.describe("Note Add Roundtrip", () => {
     test("add note fires addNote RPC, shows toast, resets form", async ({ editor }) => {
@@ -18,7 +19,7 @@ test.describe("Note Add Roundtrip", () => {
         const seenUrls: string[] = [];
         editor.on("response", (r) => {
             const m = r.url().match(/\/_anki\/([^?#]+)/);
-            if (m && r.status() < 400) seenUrls.push(m[1]);
+            if (m && r.status() < 400) { seenUrls.push(m[1]); }
         });
 
         // Body capture happens off the Request returned by waitForRequest below.
@@ -28,26 +29,18 @@ test.describe("Note Add Roundtrip", () => {
         // Step 2: Focus the first editor field (Front) and type 'Hello World'.
         // The rich-text input uses a shadow DOM: .rich-text-editable > shadow > anki-editable.
         // We pierce the shadow with >> and target the first field's editable element.
-        const firstFieldEditable = editor
-            .locator(".editor-field")
-            .first()
-            .locator(".rich-text-editable")
-            .locator("anki-editable");
+        const firstFieldEditable = editableField(editor, 0);
         await firstFieldEditable.click();
         await firstFieldEditable.type("Hello World");
 
         // Tab to the second field (Back) and type 'Goodbye World'.
-        const secondFieldEditable = editor
-            .locator(".editor-field")
-            .nth(1)
-            .locator(".rich-text-editable")
-            .locator("anki-editable");
+        const secondFieldEditable = editableField(editor, 1);
         await secondFieldEditable.click();
         await secondFieldEditable.type("Goodbye World");
 
         // Step 2 (cont.): Wait for the 600ms debounce to settle by waiting for
         // the duplicate-check RPC that the debounce triggers.
-        await editor.waitForRequest("**/_anki/noteFieldsCheck", { timeout: 5_000 });
+        await editor.waitForRequest(rpcUrl("noteFieldsCheck"), { timeout: 5_000 });
 
         // Step 3: Assert no updateNotes request fired during typing (add mode only).
         expect(seenUrls).not.toContain("updateNotes");
@@ -57,10 +50,10 @@ test.describe("Note Add Roundtrip", () => {
 
         // Step 5: Click the Add button. Use exact match to avoid matching
         // "Add tag" in the tag editor.
-        const addNoteReq = editor.waitForRequest("**/_anki/addNote", {
+        const addNoteReq = editor.waitForRequest(rpcUrl("addNote"), {
             timeout: 10_000,
         });
-        const addNoteResp = editor.waitForResponse("**/_anki/addNote", {
+        const addNoteResp = editor.waitForResponse(rpcUrl("addNote"), {
             timeout: 10_000,
         });
         await editor
@@ -70,15 +63,11 @@ test.describe("Note Add Roundtrip", () => {
         const response = await addNoteResp;
         expect(
             response.status(),
-            `addNote response status ${response.status()}, body: ${
-                await response.text().catch(() => "<unreadable>")
-            }`,
+            `addNote response status ${response.status()}, body: ${await response.text().catch(() => "<unreadable>")}`,
         ).toBeLessThan(400);
 
         // Step 6: Decode the AddNoteRequest protobuf body and assert field values.
-        const buf = request.postDataBuffer();
-        expect(buf, "addNote request had no postData").not.toBeNull();
-        const decoded = AddNoteRequest.fromBinary(new Uint8Array(buf!));
+        const decoded = decodeRequestBody(request, AddNoteRequest);
         expect(decoded.note?.fields[0]).toBe("Hello World");
         expect(decoded.note?.fields[1]).toBe("Goodbye World");
         expect(decoded.deckId).not.toBe(0n);
@@ -86,12 +75,11 @@ test.describe("Note Add Roundtrip", () => {
         // Step 7: Verify form-reset behavior (more durable than the 500ms toast).
         // After successful add, the editor calls loadNote({stickyFieldsFrom: note})
         // which fires a fresh newNote RPC.
-        await editor.waitForRequest("**/_anki/newNote", { timeout: 10_000 });
+        await editor.waitForRequest(rpcUrl("newNote"), { timeout: 10_000 });
         await expect(firstFieldEditable).toBeEmpty({ timeout: 5_000 });
 
         // Step 8: Assert window.__bridgeCalls contains 'saved' (fired by saveNow()).
-        const bridgeCalls = await editor.evaluate(() => window.__bridgeCalls!);
-        expect(bridgeCalls).toContain("saved");
+        expect(await bridgeCalls(editor)).toContain("saved");
 
         // Step 9: Toast verification — best-effort. The toast auto-dismisses
         // after 500ms (showToast(..., 500) in NoteEditor.svelte), so polling

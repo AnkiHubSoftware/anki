@@ -30,13 +30,14 @@
 import { Notetype } from "@generated/anki/notetypes_pb";
 
 import { expect, test } from "./fixtures";
+import { bridgeCalls, decodeRequestBody, fieldContainer, rpcUrl } from "./helpers";
 
 test.describe("Sticky Field Toggle", () => {
     test("clicking sticky badge fires updateNotetype with the right flds[i].sticky flip", async ({ editor }) => {
         // Step 1: Scope to the first field. `.editor-field` is ONLY the input
         // body; the StickyBadge lives in the sibling slot (`field-label`)
         // inside `.field-container`. Use `.field-container` as the scope.
-        const firstFieldContainer = editor.locator(".field-container").nth(0);
+        const firstFieldContainer = fieldContainer(editor, 0);
 
         // StickyBadge.svelte renders <span role="button"> with the toggle
         // handler bound. The inner Badge wraps it visually; the title
@@ -44,7 +45,7 @@ test.describe("Sticky Field Toggle", () => {
         // We target the span via its inner Badge title attribute, which is
         // the only sticky-titled element in the field.
         const stickyBadge = firstFieldContainer
-            .locator('[title*="sticky" i]')
+            .locator("[title*=\"sticky\" i]")
             .locator("xpath=ancestor-or-self::span[@role='button']")
             .first();
 
@@ -58,19 +59,19 @@ test.describe("Sticky Field Toggle", () => {
         // Step 3a: Set up request/response captures for getNotetype and
         // updateNotetype BEFORE clicking, so we don't miss fast responses.
         const getNotetypeReqPromise = editor.waitForRequest(
-            "**/_anki/getNotetype",
+            rpcUrl("getNotetype"),
             { timeout: 10_000 },
         );
         const getNotetypeRespPromise = editor.waitForResponse(
-            "**/_anki/getNotetype",
+            rpcUrl("getNotetype"),
             { timeout: 10_000 },
         );
         const updateNotetypeReqPromise = editor.waitForRequest(
-            "**/_anki/updateNotetype",
+            rpcUrl("updateNotetype"),
             { timeout: 10_000 },
         );
         const updateNotetypeRespPromise = editor.waitForResponse(
-            "**/_anki/updateNotetype",
+            rpcUrl("updateNotetype"),
             { timeout: 10_000 },
         );
 
@@ -92,16 +93,15 @@ test.describe("Sticky Field Toggle", () => {
             `updateNotetype response status ${updateNotetypeResp.status()}`,
         ).toBeLessThan(400);
 
-        const updateReq = await updateNotetypeReqPromise;
-        const buf = updateReq.postDataBuffer();
-        expect(buf, "updateNotetype request had no postData").not.toBeNull();
-
         // Step 5: Decode and assert sticky was flipped to true for field 0.
         // updateNotetype receives a bare Notetype message (see backend.ts:399).
         // TODO: The initial sticky state is assumed to be false. If the test
         // Anki instance has sticky=true for flds[0] already, this assertion
         // will fail. In that case, toggle twice to start from a known state.
-        const notetype = Notetype.fromBinary(new Uint8Array(buf!));
+        const notetype = decodeRequestBody(
+            await updateNotetypeReqPromise,
+            Notetype,
+        );
         expect(
             notetype.fields[0]?.config?.sticky,
             "expected flds[0].config.sticky to be true after first toggle",
@@ -110,10 +110,7 @@ test.describe("Sticky Field Toggle", () => {
         // Step 6: Assert no bridgeCommand("toggleSticky:...") was recorded.
         // The legacy path calls bridgeCommand(`toggleSticky:${index}`); the
         // new path must NOT call it.
-        const bridgeCalls = await editor.evaluate(() => window.__bridgeCalls ?? []);
-        const toggleStickyCalls = bridgeCalls.filter((c: string) =>
-            c.startsWith("toggleSticky"),
-        );
+        const toggleStickyCalls = (await bridgeCalls(editor)).filter((c: string) => c.startsWith("toggleSticky"));
         expect(
             toggleStickyCalls,
             "bridgeCommand toggleSticky should not be called in non-legacy mode",
@@ -127,11 +124,11 @@ test.describe("Sticky Field Toggle", () => {
         await firstFieldContainer.hover();
 
         const updateNotetypeReqPromise2 = editor.waitForRequest(
-            "**/_anki/updateNotetype",
+            rpcUrl("updateNotetype"),
             { timeout: 10_000 },
         );
         const updateNotetypeRespPromise2 = editor.waitForResponse(
-            "**/_anki/updateNotetype",
+            rpcUrl("updateNotetype"),
             { timeout: 10_000 },
         );
 
@@ -140,11 +137,10 @@ test.describe("Sticky Field Toggle", () => {
         const updateResp2 = await updateNotetypeRespPromise2;
         expect(updateResp2.status()).toBeLessThan(400);
 
-        const updateReq2 = await updateNotetypeReqPromise2;
-        const buf2 = updateReq2.postDataBuffer();
-        expect(buf2, "second updateNotetype request had no postData").not.toBeNull();
-
-        const notetype2 = Notetype.fromBinary(new Uint8Array(buf2!));
+        const notetype2 = decodeRequestBody(
+            await updateNotetypeReqPromise2,
+            Notetype,
+        );
         expect(
             notetype2.fields[0]?.config?.sticky,
             "expected flds[0].config.sticky to be false after second toggle",

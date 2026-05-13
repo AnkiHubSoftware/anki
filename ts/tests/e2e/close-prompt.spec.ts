@@ -21,64 +21,42 @@
 import { Bool } from "@generated/anki/generic_pb";
 
 import { expect, test } from "./fixtures";
+import { decodeRequestBody, editableField, mockEmptyProtoResponse, rpcUrl } from "./helpers";
 
 test.describe("Discard-Changes Prompt", () => {
-    test("close with unsaved content fires closeAddCards with val=true", async ({
-        editor,
-    }) => {
+    test("close with unsaved content fires closeAddCards with val=true", async ({ editor }) => {
         // Mock closeAddCards so the backend never tries to find the Qt window.
-        await editor.route("**/_anki/closeAddCards", async (route) => {
-            await route.fulfill({
-                status: 200,
-                contentType: "application/binary",
-                body: "",
-            });
-        });
+        await mockEmptyProtoResponse(editor, "closeAddCards");
 
         // Set up waitForRequest BEFORE clicking so we don't miss the request.
-        const closeAddCardsReq = editor.waitForRequest("**/_anki/closeAddCards", {
+        const closeAddCardsReq = editor.waitForRequest(rpcUrl("closeAddCards"), {
             timeout: 10_000,
         });
 
         // Focus the first field and type content to make shouldPromptBeforeClosing() return true.
-        const firstFieldEditable = editor
-            .locator(".editor-field")
-            .first()
-            .locator(".rich-text-editable")
-            .locator("anki-editable");
+        const firstFieldEditable = editableField(editor, 0);
         await firstFieldEditable.click();
         await firstFieldEditable.type("Unsaved Content");
 
         // Wait for the 600ms debounce to settle via the noteFieldsCheck RPC it triggers.
-        await editor.waitForRequest("**/_anki/noteFieldsCheck", { timeout: 5_000 });
+        await editor.waitForRequest(rpcUrl("noteFieldsCheck"), { timeout: 5_000 });
 
         // Click the Close button.
         await editor.getByRole("button", { name: "Close", exact: true }).click();
 
         // Decode the closeAddCards request body as generic.Bool.
-        const request = await closeAddCardsReq;
-        const buf = request.postDataBuffer();
-        // proto3 encodes Bool{val:true} as non-empty bytes; buf should be non-null here.
-        const decoded = Bool.fromBinary(buf ? new Uint8Array(buf) : new Uint8Array(0));
+        const decoded = decodeRequestBody(await closeAddCardsReq, Bool);
 
         // shouldPromptBeforeClosing() returned true because field 0 has content.
         expect(decoded.val).toBe(true);
     });
 
-    test("close with empty fields fires closeAddCards with val=false", async ({
-        editor,
-    }) => {
+    test("close with empty fields fires closeAddCards with val=false", async ({ editor }) => {
         // Mock closeAddCards so the backend never tries to find the Qt window.
-        await editor.route("**/_anki/closeAddCards", async (route) => {
-            await route.fulfill({
-                status: 200,
-                contentType: "application/binary",
-                body: "",
-            });
-        });
+        await mockEmptyProtoResponse(editor, "closeAddCards");
 
         // Set up waitForRequest BEFORE clicking so we don't miss the request.
-        const closeAddCardsReq = editor.waitForRequest("**/_anki/closeAddCards", {
+        const closeAddCardsReq = editor.waitForRequest(rpcUrl("closeAddCards"), {
             timeout: 10_000,
         });
 
@@ -89,9 +67,8 @@ test.describe("Discard-Changes Prompt", () => {
 
         // Decode the closeAddCards request body as generic.Bool.
         const request = await closeAddCardsReq;
-        const buf = request.postDataBuffer();
-        // proto3 elides default-false bool field — zero bytes decode to Bool{val:false}.
-        const decoded = Bool.fromBinary(buf ? new Uint8Array(buf) : new Uint8Array(0));
+        const body = request.postDataBuffer();
+        const decoded = Bool.fromBinary(body ? new Uint8Array(body) : new Uint8Array(0));
 
         // shouldPromptBeforeClosing() returned false because all fields are empty.
         expect(decoded.val).toBe(false);

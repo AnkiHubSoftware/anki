@@ -24,17 +24,13 @@
 //     Request object (NOT off route.request() inside the handler, which is
 //     unreliable).
 
-import {
-    AddMediaFromUrlRequest,
-    AddMediaFromUrlResponse,
-} from "@generated/anki/media_pb";
+import { AddMediaFromUrlRequest, AddMediaFromUrlResponse } from "@generated/anki/media_pb";
 
 import { expect, test } from "./fixtures";
+import { decodeRequestBody, editableField, mockProtoResponse, pasteData, rpcUrl } from "./helpers";
 
 test.describe("Media from URL Roundtrip", () => {
-    test("pasting an image URL fires addMediaFromUrl and inserts an img with the returned filename", async ({
-        editor: page,
-    }) => {
+    test("pasting an image URL fires addMediaFromUrl and inserts an img with the returned filename", async ({ editor: page }) => {
         // Step 1: Assert no request leaks to external hosts. Register the
         // listener early so it captures anything that fires during the test.
         const externalRequests: string[] = [];
@@ -48,31 +44,24 @@ test.describe("Media from URL Roundtrip", () => {
 
         // Step 2: Register route interception for addMediaFromUrl BEFORE the
         // paste so we catch the very first request.
-        await page.route("**/_anki/addMediaFromUrl", async (route) => {
-            const responseProto = new AddMediaFromUrlResponse({
+        await mockProtoResponse(
+            page,
+            "addMediaFromUrl",
+            new AddMediaFromUrlResponse({
                 filename: "pasted-image.jpg",
-            });
-            const bytes = responseProto.toBinary();
-            await route.fulfill({
-                status: 200,
-                contentType: "application/binary",
-                body: Buffer.from(bytes),
-            });
-        });
+            }),
+        );
 
         // Step 3: Arm waitForRequest BEFORE dispatching the paste event so we
         // don't miss the request. The promise is awaited after the paste.
         const addMediaReqPromise = page.waitForRequest(
-            "**/_anki/addMediaFromUrl",
+            rpcUrl("addMediaFromUrl"),
             { timeout: 10_000 },
         );
 
         // Step 4: Locate the first field's anki-editable (inside shadow DOM of
         // .rich-text-editable) and click to focus.
-        const editable = page
-            .locator(".rich-text-editable")
-            .first()
-            .locator("anki-editable");
+        const editable = editableField(page, 0);
         await expect(editable).toBeAttached({ timeout: 10_000 });
         await editable.click();
 
@@ -80,25 +69,14 @@ test.describe("Media from URL Roundtrip", () => {
         // evaluate() so that the DataTransfer constructor is available in the
         // browser context. Only text/uri-list is set — no text/html — so
         // processDataTransferEvent falls through to processUrls.
-        await editable.evaluate((el) => {
-            const dt = new DataTransfer();
-            dt.setData("text/uri-list", "https://example.com/image.jpg");
-            el.focus();
-            el.dispatchEvent(
-                new ClipboardEvent("paste", {
-                    clipboardData: dt,
-                    bubbles: true,
-                    cancelable: true,
-                }),
-            );
+        await pasteData(editable, {
+            "text/uri-list": "https://example.com/image.jpg",
         });
 
         // Step 6: Await the intercepted addMediaFromUrl request and decode the
         // protobuf body to assert the URL was passed through correctly.
         const addMediaReq = await addMediaReqPromise;
-        const buf = addMediaReq.postDataBuffer();
-        expect(buf, "addMediaFromUrl request had no postData").not.toBeNull();
-        const decoded = AddMediaFromUrlRequest.fromBinary(new Uint8Array(buf!));
+        const decoded = decodeRequestBody(addMediaReq, AddMediaFromUrlRequest);
         expect(decoded.url).toBe("https://example.com/image.jpg");
 
         // Step 7: Wait for the paste handler to finish writing the <img> into

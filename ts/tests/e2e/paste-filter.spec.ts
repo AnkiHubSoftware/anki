@@ -24,7 +24,10 @@
 //     tagsAllowedBasic, so P: convertToDiv is active in both modes — the P→DIV
 //     assertion holds regardless of the config value.
 
+import { AddNoteRequest } from "@generated/anki/notes_pb";
+
 import { expect, test } from "./fixtures";
+import { decodeRequestBody, editableField, pasteData, rpcUrl } from "./helpers";
 
 test.describe("Paste HTML Filter", () => {
     test("pasted P tags are rewritten to DIV by the TS filter", async ({ editor: page }) => {
@@ -34,12 +37,16 @@ test.describe("Paste HTML Filter", () => {
         //    or the pierce/ CSS prefix.
         // Chained .locator() calls pierce shadow DOM automatically; Playwright
         // has no `pierce/` selector syntax (this was tried earlier and failed).
-        const editableLocator = page
-            .locator(".rich-text-editable")
-            .first()
-            .locator("anki-editable");
+        const editableLocator = editableField(page, 0);
 
         await expect(editableLocator).toBeAttached({ timeout: 10_000 });
+
+        const mediaRequests: string[] = [];
+        page.on("request", (req) => {
+            if (req.url().includes("/_anki/addMediaFromUrl")) {
+                mediaRequests.push(req.url());
+            }
+        });
 
         // 2. Focus the first field by clicking it.
         await editableLocator.click();
@@ -50,17 +57,8 @@ test.describe("Paste HTML Filter", () => {
         //    The event must bubble so the listener on anki-editable fires.
         //    handlePasteOrDrop calls event.preventDefault() and reads
         //    event.clipboardData — both work correctly with this pattern.
-        await editableLocator.evaluate((el) => {
-            const dt = new DataTransfer();
-            dt.setData("text/html", "<p>Paragraph One</p><p>Paragraph Two</p>");
-            el.focus();
-            el.dispatchEvent(
-                new ClipboardEvent("paste", {
-                    clipboardData: dt,
-                    bubbles: true,
-                    cancelable: true,
-                }),
-            );
+        await pasteData(editableLocator, {
+            "text/html": "<p>Paragraph One</p><p>Paragraph Two</p>",
         });
 
         // 4. Wait for the async paste handler to finish and the DOM to update.
@@ -79,59 +77,26 @@ test.describe("Paste HTML Filter", () => {
         //    then click the Add button to trigger note submission.
         //    The Add button label comes from tr.actionsAdd() — we match by role
         //    to avoid hard-coding the i18n string.
-        let capturedAddNoteBody: Uint8Array | null = null;
-        await page.route("**/_anki/addNote", async (route) => {
-            const body = route.request().postDataBuffer();
-            if (body) {
-                capturedAddNoteBody = new Uint8Array(body);
-            }
-            await route.continue();
+        const addNoteReq = page.waitForRequest(rpcUrl("addNote"), {
+            timeout: 10_000,
         });
 
         // Click the Add button. Use exact name to avoid matching "Add tag".
         await page.getByRole("button", { name: "Add", exact: true }).click();
 
         // Wait for the addNote request to be intercepted.
-        await page.waitForResponse((resp) =>
-            resp.url().includes("/_anki/addNote") && resp.status() < 400,
-            { timeout: 10_000 },
-        );
+        await page.waitForResponse((resp) => resp.url().includes("/_anki/addNote") && resp.status() < 400, {
+            timeout: 10_000,
+        });
 
         // 5a. Decode and assert the captured request body.
-        //     AddNoteRequest is a protobuf; we cannot decode it without the proto
-        //     schema here, so we convert the raw bytes to a UTF-8 string and do
-        //     a substring search. Protobuf encodes string field values as UTF-8
-        //     length-delimited bytes, so the HTML text will be readable as-is.
-        //
-        // TODO: If Anki applies additional escaping (escape_media_filenames) that
-        //       alters the field value in transit, the assertion below may need to
-        //       be relaxed to just check for the absence of "<p" bytes. As of this
-        //       writing, plain text fields are not affected by media escaping.
-        if (capturedAddNoteBody !== null) {
-            const bodyText = new TextDecoder("utf-8", { fatal: false }).decode(
-                capturedAddNoteBody,
-            );
-            // The serialised protobuf bytes contain the HTML field value as a
-            // UTF-8 run — <div> should appear and <p> must not.
-            expect(bodyText).toContain("<div>");
-            expect(bodyText).not.toMatch(/<p[\s>]/);
-        } else {
-            // If the route never fired (e.g. Anki rejected the note before the
-            // request was made) the body capture is null — fail explicitly.
-            throw new Error(
-                "addNote request was not intercepted; note may have been rejected before submission",
-            );
-        }
+        const decoded = decodeRequestBody(await addNoteReq, AddNoteRequest);
+        expect(decoded.note?.fields[0]).toContain("<div>");
+        expect(decoded.note?.fields[0]).not.toMatch(/<p[\s>]/);
 
         // 6. Assert that no /_anki/addMediaFromUrl request was fired.
         //    The pasted content contains no images or URLs, so the media
         //    retrieval path in runPreFilter should be a no-op.
-        const mediaRequests: string[] = [];
-        page.on("request", (req) => {
-            if (req.url().includes("/_anki/addMediaFromUrl")) {
-                mediaRequests.push(req.url());
-            }
-        });
         // Give a short tick for any in-flight media requests to arrive.
         await page.waitForTimeout(500);
         expect(mediaRequests).toHaveLength(0);

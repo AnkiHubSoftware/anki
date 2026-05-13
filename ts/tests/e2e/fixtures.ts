@@ -6,9 +6,7 @@ import { type Page, test as base } from "@playwright/test";
 declare global {
     interface Window {
         __bridgeCalls?: string[];
-        // Set by addInitScript below.
-        bridgeCommand?: (cmd: string, cb?: (data: unknown) => void) => void;
-        pycmd?: (cmd: string, cb?: (data: unknown) => void) => void;
+        pycmd?<T>(cmd: string, cb?: (data: T) => void): void;
     }
 }
 
@@ -45,9 +43,11 @@ type AnkiFixtures = {
 async function installBridgeStub(page: Page): Promise<void> {
     await page.addInitScript(() => {
         window.__bridgeCalls = [];
-        const stub = (cmd: string, cb?: (data: unknown) => void) => {
+        const stub = <T>(cmd: string, cb?: (data: T) => void) => {
             window.__bridgeCalls!.push(cmd);
-            if (typeof cb === "function") cb(null);
+            if (typeof cb === "function") {
+                cb(null as T);
+            }
         };
         window.bridgeCommand = stub;
         window.pycmd = stub;

@@ -14,21 +14,21 @@
 //      the table stakes for every mock-based suite.
 
 import { expect, test } from "./fixtures";
+import { bridgeCalls, rpcUrl } from "./helpers";
 
 test.describe("harness sanity", () => {
     test("editor page is served and SvelteKit hydrates", async ({ editorPage }) => {
         // editorPage fixture already waits for .note-editor.
         await expect(editorPage.locator(".note-editor")).toBeVisible();
         // The editor reports a state-change bridge call as soon as it mounts.
-        const bridgeCalls = await editorPage.evaluate(() => window.__bridgeCalls!);
-        expect(bridgeCalls).toContain("editorReady");
+        expect(await bridgeCalls(editorPage)).toContain("editorReady");
     });
 
     test("loadNote() drives the full bootstrap RPC sequence", async ({ editorPage }) => {
         const seen = new Set<string>();
         editorPage.on("response", (r) => {
             const m = r.url().match(/\/_anki\/([^?]+)/);
-            if (m && r.status() < 400) seen.add(m[1]);
+            if (m && r.status() < 400) { seen.add(m[1]); }
         });
 
         await editorPage.evaluate(() => {
@@ -50,25 +50,25 @@ test.describe("harness sanity", () => {
             { timeout: 10_000 },
         );
 
-        for (const expected of [
-            "defaultsForAdding",
-            "newNote",
-            "getNotetype",
-            "getFieldNames",
-            "noteFieldsCheck",
-        ]) {
+        for (
+            const expected of [
+                "defaultsForAdding",
+                "newNote",
+                "getNotetype",
+                "getFieldNames",
+                "noteFieldsCheck",
+            ]
+        ) {
             expect(
                 seen.has(expected),
-                `expected /_anki/${expected} in bootstrap, observed: ${
-                    JSON.stringify([...seen])
-                }`,
+                `expected /_anki/${expected} in bootstrap, observed: ${JSON.stringify([...seen])}`,
             ).toBe(true);
         }
     });
 
     test("page.route() intercepts /_anki/* fetches", async ({ editorPage }) => {
         const intercepted: string[] = [];
-        await editorPage.route("**/_anki/**", async (route) => {
+        await editorPage.route(rpcUrl("**"), async (route) => {
             intercepted.push(route.request().url());
             await route.continue();
         });
