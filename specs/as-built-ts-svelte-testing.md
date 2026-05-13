@@ -29,26 +29,27 @@ Playwright's `webServer` config spawns `qt/tests/launch_anki_for_e2e.py`, which 
 
 ### Files
 
-| Path | Role |
-| --- | --- |
-| `qt/tests/launch_anki_for_e2e.py` | Standalone subprocess launcher. Seeds `prefs21.db` (skipping first-run + update-prompt) and execs Anki with the right env. |
-| `playwright.config.ts` | `webServer.command` invokes the launcher; `baseURL` is the mediasrv URL; `workers: 1` because the collection is shared mutable state. |
-| `ts/tests/e2e/fixtures.ts` | `editorPage` (navigated + `bridgeCommand` stubbed) and `editor` (above + `loadNote()` invoked + fields rendered) fixtures. Generalizes to any page; the `loadNote` bootstrap step is editor-specific and lives only in the `editor` fixture. |
-| `ts/tests/e2e/*.spec.ts` | One `.spec.ts` per contract under test. |
+| Path                              | Role                                                                                                                                                                                                                                         |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qt/tests/launch_anki_for_e2e.py` | Standalone subprocess launcher. Seeds `prefs21.db` (skipping first-run + update-prompt) and execs Anki with the right env.                                                                                                                   |
+| `playwright.config.ts`            | `webServer.command` invokes the launcher; `baseURL` is the mediasrv URL; `workers: 1` because the collection is shared mutable state; server reuse is disabled unless `ANKI_E2E_REUSE_SERVER=1` is set.                                      |
+| `ts/tests/e2e/fixtures.ts`        | `editorPage` (navigated + `bridgeCommand` stubbed) and `editor` (above + `loadNote()` invoked + fields rendered) fixtures. Generalizes to any page; the `loadNote` bootstrap step is editor-specific and lives only in the `editor` fixture. |
+| `ts/tests/e2e/helpers.ts`         | Shared selectors, RPC/protobuf helpers, bridge-call access, and synthetic paste utilities used by specs and generated tests.                                                                                                                 |
+| `ts/tests/e2e/*.spec.ts`          | One `.spec.ts` per contract under test.                                                                                                                                                                                                      |
 
-Run via `just test-e2e` (or `yarn playwright test`).
+Run via `just test-e2e`. The `just` recipe prepares generated TypeScript, node modules, and Python/Qt build outputs before invoking Playwright.
 
 ## Environment knobs that make the harness work
 
 Each of these took digging to discover. None are documented elsewhere in the codebase.
 
-| Knob | Why it's needed |
-| --- | --- |
-| `ANKI_API_PORT=40000` | Without this, mediasrv picks a random port at startup. Playwright config needs a hard-coded `baseURL`. |
-| `ANKI_API_HOST=0.0.0.0` | The documented testing escape in `qt/aqt/mediasrv.py:_have_api_access`. Bypasses the `Authorization: Bearer <_APIKEY>` check that only QtWebEngine injects. Side effect: mediasrv binds to all interfaces — fine locally, not safe in shared environments. |
-| `meta["check_for_updates"] = False` (seeded into `prefs21.db`) | Suppresses the version-update prompt at startup. The `suppressUpdate` key alone is insufficient — `qt/aqt/update.py:60` compares it to the new version *string*, not a boolean. The real switch is `check_for_updates` read by `ProfileManager` and gated on in `main.py:setup_auto_update`. |
-| `addInitScript` stub of `window.bridgeCommand` / `window.pycmd` | The page expects these to be injected by QWebChannel. Without a stub, every `bridgeCommand("editorReady")` etc. throws `ReferenceError` on mount. The stub records calls into `window.__bridgeCalls: string[]` so tests can assert on what the page tried to tell the host. |
-| `page.evaluate("loadNote({initial: true})")` (editor-specific) | The editor doesn't bootstrap on its own — in QtWebEngine, Python calls `web.eval("loadNote(...)")` after receiving the `editorReady` bridge command. Tests fire this manually to trigger the full RPC sequence. Other SvelteKit pages may need analogous trigger calls; check the source for what Python invokes after page load. |
+| Knob                                                            | Why it's needed                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANKI_API_PORT=40000`                                           | Without this, mediasrv picks a random port at startup. Playwright config needs a hard-coded `baseURL`.                                                                                                                                                                                                                            |
+| `ANKI_API_HOST=0.0.0.0`                                         | The documented testing escape in `qt/aqt/mediasrv.py:_have_api_access`. Bypasses the `Authorization: Bearer <_APIKEY>` check that only QtWebEngine injects. Side effect: mediasrv binds to all interfaces — fine locally, not safe in shared environments.                                                                        |
+| `meta["check_for_updates"] = False` (seeded into `prefs21.db`)  | Suppresses the version-update prompt at startup. The `suppressUpdate` key alone is insufficient — `qt/aqt/update.py:60` compares it to the new version _string_, not a boolean. The real switch is `check_for_updates` read by `ProfileManager` and gated on in `main.py:setup_auto_update`.                                      |
+| `addInitScript` stub of `window.bridgeCommand` / `window.pycmd` | The page expects these to be injected by QWebChannel. Without a stub, every `bridgeCommand("editorReady")` etc. throws `ReferenceError` on mount. The stub records calls into `window.__bridgeCalls: string[]` so tests can assert on what the page tried to tell the host.                                                       |
+| `page.evaluate("loadNote({initial: true})")` (editor-specific)  | The editor doesn't bootstrap on its own — in QtWebEngine, Python calls `web.eval("loadNote(...)")` after receiving the `editorReady` bridge command. Tests fire this manually to trigger the full RPC sequence. Other SvelteKit pages may need analogous trigger calls; check the source for what Python invokes after page load. |
 
 ## Playwright behaviors worth knowing
 
@@ -92,19 +93,23 @@ Poor fits — use a different harness:
 The minimum viable spec looks like this:
 
 ```ts
+import { AddNoteRequest } from "@generated/anki/notes_pb";
+
 import { expect, test } from "./fixtures";
+import { decodeRequestBody, editableField, rpcUrl } from "./helpers";
 
 test("the contract you're protecting", async ({ editor }) => {
     // 1. (optional) Intercept the RPC you care about:
-    const reqPromise = editor.waitForRequest("**/_anki/<endpoint>");
+    const reqPromise = editor.waitForRequest(rpcUrl("<endpoint>"));
 
     // 2. Drive the UI:
-    await editor.getByRole("button", { name: "X", exact: true }).click();
+    await editableField(editor, 0).fill("expected");
+    await editor.getByRole("button", { name: "Add", exact: true }).click();
 
     // 3. Assert on the request body:
     const req = await reqPromise;
-    const decoded = SomeProto.fromBinary(new Uint8Array(req.postDataBuffer()!));
-    expect(decoded.fields[0]).toBe("expected");
+    const decoded = decodeRequestBody(req, AddNoteRequest);
+    expect(decoded.note?.fields[0]).toBe("expected");
 
     // 4. (or) Assert on the DOM:
     await expect(editor.locator(".some-class")).toBeVisible();
@@ -115,7 +120,9 @@ Conventions:
 
 - One contract per test. If you need to assert on two related-but-distinct behaviors, write two `test()` blocks under one `test.describe` (see `close-prompt.spec.ts`).
 - Use the `editor` fixture when you want fields already rendered; use `editorPage` when you need to control when `loadNote()` fires (rare).
+- Use helpers from `ts/tests/e2e/helpers.ts` for field selectors, RPC URL globs, protobuf decoding, mocked protobuf responses, response capture, and synthetic paste events. Do not copy shadow-DOM selectors or `DataTransfer` boilerplate into new specs.
 - Tests share a single Anki collection. If your test mutates state, document it at the top and make the test self-contained (use unique probes, not values another test may have added).
+- Register negative request observers before the action under test. A listener attached after paste/click cannot prove the request did not fire.
 - Use `colgrep` to find selectors and proto message names. e.g. `colgrep -e "addMediaFromUrl" "media from URL handler" ./ts/routes/editor`.
 
 ## Existing suite as reference
