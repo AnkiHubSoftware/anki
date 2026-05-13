@@ -45,6 +45,7 @@ runs:
           python3-dev \
           rsync \
           unzip \
+          xvfb \
           zstd
 
     - name: Install rsync (Windows)
@@ -65,7 +66,7 @@ runs:
     - name: Install Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
-        components: clippy
+        components: clippy, llvm-tools-preview
         cache: false # ci.yml manages its own cargo cache
         rustflags: "" # don't inject -D warnings; the build system handles this
 

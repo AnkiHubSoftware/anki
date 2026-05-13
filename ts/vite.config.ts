@@ -4,7 +4,7 @@ import svg from "@poppanator/sveltekit-svg";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { realpathSync } from "fs";
 import { defineConfig as defineViteConfig, mergeConfig } from "vite";
-import { defineConfig as defineVitestConfig } from "vitest/config";
+import { configDefaults, defineConfig as defineVitestConfig } from "vitest/config";
 
 const configure = (proxy: any, _options: any) => {
     proxy.on("error", (err: any) => {
@@ -53,6 +53,7 @@ const viteConfig = defineViteConfig({
 const vitestConfig = defineVitestConfig({
     test: {
         include: ["**/*.{test,spec}.{js,ts}"],
+        exclude: [...configDefaults.exclude, "tests/e2e/**"],
         cache: {
             // prevent vitest from creating ts/node_modules/.vitest
             dir: "../node_modules/.vitest",
