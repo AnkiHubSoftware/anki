@@ -20,6 +20,8 @@ ts/.svelte-kit
 .yarn
 .claude/settings.local.json
 .claude/user.md
+.playwright-mcp/
+test-results/
 .venv
 docs/_build/
 docs/autoapi/

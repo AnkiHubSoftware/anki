@@ -26,7 +26,7 @@ export default defineConfig({
         // just that the port is open.
         url: `http://127.0.0.1:${MEDIASRV_PORT}/editor/?mode=add`,
         timeout: 60_000,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: process.env.ANKI_E2E_REUSE_SERVER === "1",
         stdout: "pipe",
         stderr: "pipe",
         env: {

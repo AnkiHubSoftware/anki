@@ -6,10 +6,9 @@
 Standalone launcher for Playwright TS e2e tests.
 
 Seeds a throwaway ANKI_BASE so Anki skips the language picker and the
-profile chooser, then spawns Anki with QtWebEngine CDP enabled. Playwright's
-webServer config invokes this script and polls the CDP HTTP port for
-/json/version before letting tests run. globalSetup then waits for the
-QWebChannel bridge to be live.
+profile chooser, then spawns Anki with mediasrv pinned to a known local
+port. Playwright's webServer config invokes this script and polls an HTTP
+page served by mediasrv before letting tests run.
 
 This script duplicates _seed_prefs from qt/tests/conftest.py on purpose so
 the pytest harness and the TS harness stay independent. Keep the two copies
@@ -30,7 +29,6 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-CDP_PORT = int(os.environ.get("ANKI_TEST_PORT", "8081"))
 MEDIASRV_PORT = int(os.environ.get("ANKI_API_PORT", "40000"))
 TEST_PROFILE = "test"
 
@@ -97,12 +95,12 @@ def main() -> int:
             # headers. Side effect: mediasrv binds to all interfaces. Tolerable
             # on a dev machine; do not enable in shared environments.
             "ANKI_API_HOST": "0.0.0.0",
-            "QTWEBENGINE_REMOTE_DEBUGGING": str(CDP_PORT),
-            "QTWEBENGINE_CHROMIUM_FLAGS": f"--remote-allow-origins=http://localhost:{CDP_PORT}",
             "ANKIDEV": "1",
             "PYTHONPYCACHEPREFIX": str(REPO_ROOT / "out" / "pycache"),
             "RUST_BACKTRACE": "1",
         }
+        env.pop("QTWEBENGINE_REMOTE_DEBUGGING", None)
+        env.pop("QTWEBENGINE_CHROMIUM_FLAGS", None)
         python = REPO_ROOT / "out" / "pyenv" / "bin" / "python"
         proc = subprocess.Popen(
             [str(python), str(REPO_ROOT / "tools" / "run.py"), "-p", TEST_PROFILE],
